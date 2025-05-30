@@ -21,7 +21,7 @@ import com.jonow.app.objects.StudentSchedules;
 public class TestBasicData {
     
     public static void main(String[] args) {
-        String filePath = "..\\Data\\BasicData\\";
+        String filePath = "..\\..\\Data\\BasicData\\";
         Set<ClassSchedule> classSchedules = readClassSchedules(filePath + "ClassSchedule.csv");
         Set<ClassSchedulePeriods> classSchedulePeriods = readClassSchedulePeriods(filePath + "ClassSchedulePeriod.csv");
         List<StudentCourses> studentCourses = readStudentCourses(filePath + "StudentsCourses.csv");
