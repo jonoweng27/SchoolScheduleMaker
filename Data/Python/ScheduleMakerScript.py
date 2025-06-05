@@ -6,9 +6,10 @@ import re
 
 # --- Load CSV data ---
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'TwelfthGrade'))
+students_df = pd.read_csv(os.path.join(base_dir, "Students.csv"))            # Student Name, Course Name
 schedules_df = pd.read_csv(os.path.join(base_dir, "Schedules.csv"))          # Course Name, Section, Capacity
 periods_df = pd.read_csv(os.path.join(base_dir, "Periods.csv"))              # Course Name, Section, Day of Week, Period Number
-students_df = pd.read_csv(os.path.join(base_dir, "Students.csv"))            # Student Name, Course Name
+
 
 # --- Initialize model ---
 model = ConcreteModel()
@@ -118,7 +119,16 @@ os.makedirs(results_dir, exist_ok=True)
 
 assigned = [(s, sec[0], sec[1]) for s in model.Students for sec in model.Sections if value(model.x[s, sec]) == 1]
 assigned_df = pd.DataFrame(assigned, columns=["Student Name", "Course Name", "Section"])
-assigned_df.to_csv(os.path.join(results_dir, "student_schedule_output.csv"), index=False)
+assigned_df.to_csv(os.path.join(results_dir, "student_schedules.csv"), index=False)
+
+days = list(periods_df["Day of Week"].unique())
+periods = sorted(periods_df["Period Number"].unique())
+
+# Build a lookup: (Course, Section) -> {(Day, Period)}
+section_to_times = {}
+for _, row in periods_df.iterrows():
+    key = (row["Course Name"], row["Section"])
+    section_to_times.setdefault(key, set()).add((row["Day of Week"], row["Period Number"]))
 
 # --- Output unassigned requested courses per student ---
 unassigned = []
@@ -127,9 +137,41 @@ for s in model.Students:
     for c in requested_courses:
         assigned_sections = [sec for sec in course_to_sections.get(c, set()) if value(model.x[s, sec]) == 1]
         if not assigned_sections:
-            unassigned.append((s, c))
-unassigned_df = pd.DataFrame(unassigned, columns=["Student Name", "Unassigned Course"])
-unassigned_df.to_csv(os.path.join(results_dir, "student_unassigned_courses.csv"), index=False)
+            # Determine reason: capacity or time conflict
+            sections = course_to_sections.get(c, set())
+            # Check if any section has available capacity
+            has_capacity = False
+            for sec in sections:
+                if value(model.SectionSize[sec]) < model.SectionCapacity[sec]:
+                    has_capacity = True
+                    break
+            # Check if student is blocked by time conflict for all sections
+            has_time_conflict = False
+            for sec in sections:
+                # Get all times for this section
+                times = section_to_times.get(sec, set())
+                for d, p in times:
+                    # Find all other sections student is assigned to at this time
+                    for other_sec in model.Sections:
+                        if other_sec == sec:
+                            continue
+                        if (other_sec[0], other_sec[1], d, p) in model.SectionPeriods:
+                            if value(model.x[s, other_sec]) == 1:
+                                has_time_conflict = True
+                                break
+                    if has_time_conflict:
+                        break
+                if has_time_conflict:
+                    break
+            if has_time_conflict:
+                reason = "Time Conflict"
+            elif not has_capacity:
+                reason = "Capacity"
+            else:
+                reason = "Unknown"
+            unassigned.append((s, c, reason))
+unassigned_df = pd.DataFrame(unassigned, columns=["Student Name", "Unassigned Course", "Reason"])
+unassigned_df.to_csv(os.path.join(results_dir, "unassigned_courses.csv"), index=False)
 
 # --- Output class rosters per section as separate CSVs ---
 
@@ -150,15 +192,6 @@ for sec in model.Sections:
 # --- Output individual student schedules as CSVs ---
 student_output_dir = os.path.join(base_dir, "Results", "Student_Schedules")
 os.makedirs(student_output_dir, exist_ok=True)
-
-days = list(periods_df["Day of Week"].unique())
-periods = sorted(periods_df["Period Number"].unique())
-
-# Build a lookup: (Course, Section) -> {(Day, Period)}
-section_to_times = {}
-for _, row in periods_df.iterrows():
-    key = (row["Course Name"], row["Section"])
-    section_to_times.setdefault(key, set()).add((row["Day of Week"], row["Period Number"]))
 
 for s in model.Students:
     # Build a schedule grid: period -> day -> class.section or ""
