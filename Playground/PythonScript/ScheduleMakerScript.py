@@ -5,7 +5,7 @@ import os
 import re
 
 # --- Load CSV data ---
-base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'TwelfthGrade'))
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Data', 'BasicData'))
 students_df = pd.read_csv(os.path.join(base_dir, "Students.csv"))            # Student Name, Course Name
 schedules_df = pd.read_csv(os.path.join(base_dir, "Schedules.csv"))          # Course Name, Section, Capacity
 periods_df = pd.read_csv(os.path.join(base_dir, "Periods.csv"))              # Course Name, Section, Day of Week, Period Number
