@@ -2,9 +2,10 @@ import pandas as pd
 from pyomo.environ import *
 
 import os
+import re
 
 # --- Load CSV data ---
-base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'Data', 'TwelfthGrade'))
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'TwelfthGrade'))
 courses_df = pd.read_csv(os.path.join(base_dir, "Courses.csv"))              # Course Name, Num Periods in Week
 schedules_df = pd.read_csv(os.path.join(base_dir, "Schedules.csv"))          # Course Name, Section, Capacity
 periods_df = pd.read_csv(os.path.join(base_dir, "Periods.csv"))              # Course Name, Section, Day of Week, Period Number
@@ -39,9 +40,26 @@ model.SectionPeriods = Set(dimen=4, initialize=section_periods)
 student_requests = students_df.groupby("Student Name")["Course Name"].apply(set).to_dict()
 model.StudentCourseRequests = Param(model.Students, within=Any, initialize=lambda model, s: student_requests.get(s, set()))
 
+# Section size variable
+model.SectionSize = Var(model.Sections, domain=NonNegativeIntegers)
+
 # --- Variables ---
 # x[s, (c, sec)] = 1 if student s is assigned to (Course Name, Section)
 model.x = Var(model.Students, model.Sections, domain=Binary)
+
+
+# --- Encourage even section sizes ---
+model.SectionDeviation = Var(model.Sections, domain=NonNegativeReals)
+model.DeviationConstraints = ConstraintList()
+for c in model.Courses:
+    sections = list(course_to_sections.get(c, set()))
+    if not sections:
+        continue
+    avg = sum(model.SectionSize[sec] for sec in sections) / len(sections)
+    for sec in sections:
+        model.DeviationConstraints.add(model.SectionDeviation[sec] >= model.SectionSize[sec] - avg)
+        model.DeviationConstraints.add(model.SectionDeviation[sec] >= avg - model.SectionSize[sec])
+
 
 # --- Constraints ---
 
@@ -75,18 +93,33 @@ def no_time_conflicts(model, s, d, p):
     return sum(model.x[s, sec] for sec in overlapping_sections) <= 1
 model.NoTimeConflicts = Constraint(model.Students, periods_df["Day of Week"].unique(), periods_df["Period Number"].unique(), rule=no_time_conflicts)
 
+# Section size constraint: total number of students in a section must equal the SectionSize variable
+def section_size_rule(model, c, sec_num):
+    return model.SectionSize[(c, sec_num)] == sum(model.x[s, (c, sec_num)] for s in model.Students)
+model.SectionSizeConstraint = Constraint(model.Sections, rule=section_size_rule)
+
+
 # --- Objective ---
 # Maximize number of assigned student-course pairs
-model.obj = Objective(expr=sum(model.x[s, sec] for s in model.Students for sec in model.Sections), sense=maximize)
+
+alpha = .1  # Can be modified
+model.obj = Objective(
+    expr=sum(model.x[s, sec] for s in model.Students for sec in model.Sections)
+        - alpha * sum(model.SectionDeviation[sec] for sec in model.Sections),
+    sense=maximize
+)
 
 # --- Solver ---
 solver = SolverFactory('cbc')  # or 'glpk' or another MIP solver
 result = solver.solve(model, tee=True)
 
 # --- Output assigned students ---
+results_dir = os.path.join(base_dir, "Results", "Main")
+os.makedirs(results_dir, exist_ok=True)
+
 assigned = [(s, sec[0], sec[1]) for s in model.Students for sec in model.Sections if value(model.x[s, sec]) == 1]
 assigned_df = pd.DataFrame(assigned, columns=["Student Name", "Course Name", "Section"])
-assigned_df.to_csv("drs_student_schedule_output.csv", index=False)
+assigned_df.to_csv(os.path.join(results_dir, "student_schedule_output.csv"), index=False)
 
 # --- Output unassigned requested courses per student ---
 unassigned = []
@@ -97,4 +130,55 @@ for s in model.Students:
         if not assigned_sections:
             unassigned.append((s, c))
 unassigned_df = pd.DataFrame(unassigned, columns=["Student Name", "Unassigned Course"])
-unassigned_df.to_csv("drs_student_unassigned_courses.csv", index=False)
+unassigned_df.to_csv(os.path.join(results_dir, "student_unassigned_courses.csv"), index=False)
+
+# --- Output class rosters per section as separate CSVs ---
+
+output_dir = os.path.join(base_dir, "Results", "Class_Rosters")
+os.makedirs(output_dir, exist_ok=True)
+
+for sec in model.Sections:
+    members = [s for s in model.Students if value(model.x[s, sec]) == 1]
+    if members:
+        course_name = str(sec[0])
+        section_num = str(sec[1])
+        # Sanitize filename
+        safe_course = re.sub(r'[^A-Za-z0-9_\-]', '_', course_name)
+        filename = f"{safe_course}_{section_num}.csv"
+        df = pd.DataFrame({"Student Name": members})
+        df.to_csv(os.path.join(output_dir, filename), index=False)
+
+# --- Output individual student schedules as CSVs ---
+student_output_dir = os.path.join(base_dir, "Results", "Student_Schedules")
+os.makedirs(student_output_dir, exist_ok=True)
+
+days = list(periods_df["Day of Week"].unique())
+periods = sorted(periods_df["Period Number"].unique())
+
+# Map day numbers to names (assuming 1=Monday, 2=Tuesday, etc.)
+day_name_map = {1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday", 5: "Friday", 6: "Saturday", 7: "Sunday"}
+day_headers = [day_name_map.get(d, str(d)) for d in days]
+
+# Build a lookup: (Course, Section) -> {(Day, Period)}
+section_to_times = {}
+for _, row in periods_df.iterrows():
+    key = (row["Course Name"], row["Section"])
+    section_to_times.setdefault(key, set()).add((row["Day of Week"], row["Period Number"]))
+
+for s in model.Students:
+    # Build a schedule grid: period -> day -> class.section or ""
+    schedule = {p: {d: "" for d in days} for p in periods}
+    for sec in model.Sections:
+        if value(model.x[s, sec]) == 1:
+            times = section_to_times.get(sec, set())
+            for d, p in times:
+                schedule[p][d] = f"{sec[0]}.{sec[1]}"
+    # Create DataFrame: rows=periods, columns=days (with day names)
+    df = pd.DataFrame(
+        [[schedule[p][d] for d in days] for p in periods],
+        index=periods,
+        columns=day_headers
+    )
+    df.index.name = "Period"
+    safe_name = re.sub(r'[^A-Za-z0-9_\-]', '_', str(s))
+    df.to_csv(os.path.join(student_output_dir, f"{safe_name}.csv"))
