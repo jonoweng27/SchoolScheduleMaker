@@ -6,7 +6,6 @@ import re
 
 # --- Load CSV data ---
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'TwelfthGrade'))
-courses_df = pd.read_csv(os.path.join(base_dir, "Courses.csv"))              # Course Name, Num Periods in Week
 schedules_df = pd.read_csv(os.path.join(base_dir, "Schedules.csv"))          # Course Name, Section, Capacity
 periods_df = pd.read_csv(os.path.join(base_dir, "Periods.csv"))              # Course Name, Section, Day of Week, Period Number
 students_df = pd.read_csv(os.path.join(base_dir, "Students.csv"))            # Student Name, Course Name
@@ -16,7 +15,7 @@ model = ConcreteModel()
 
 # --- Sets ---
 model.Students = Set(initialize=students_df["Student Name"].unique())
-model.Courses = Set(initialize=courses_df["Course Name"].unique())
+model.Courses = Set(initialize=schedules_df["Course Name"].unique())
 model.Sections = Set(initialize=[(row["Course Name"], row["Section"]) for _, row in schedules_df.iterrows()])
 
 # Map each (Course Name, Section) to its course (redundant, but for compatibility)
@@ -155,10 +154,6 @@ os.makedirs(student_output_dir, exist_ok=True)
 days = list(periods_df["Day of Week"].unique())
 periods = sorted(periods_df["Period Number"].unique())
 
-# Map day numbers to names (assuming 1=Monday, 2=Tuesday, etc.)
-day_name_map = {1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday", 5: "Friday", 6: "Saturday", 7: "Sunday"}
-day_headers = [day_name_map.get(d, str(d)) for d in days]
-
 # Build a lookup: (Course, Section) -> {(Day, Period)}
 section_to_times = {}
 for _, row in periods_df.iterrows():
@@ -177,7 +172,7 @@ for s in model.Students:
     df = pd.DataFrame(
         [[schedule[p][d] for d in days] for p in periods],
         index=periods,
-        columns=day_headers
+        columns=days
     )
     df.index.name = "Period"
     safe_name = re.sub(r'[^A-Za-z0-9_\-]', '_', str(s))
