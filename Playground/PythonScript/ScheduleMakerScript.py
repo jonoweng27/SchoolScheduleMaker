@@ -43,6 +43,9 @@ model.StudentCourseRequests = Param(model.Students, within=Any, initialize=lambd
 # Section size variable
 model.SectionSize = Var(model.Sections, domain=NonNegativeIntegers)
 
+# Number of unassigned courses per student
+model.UnassignedCourses = Var(model.Students, domain=NonNegativeIntegers)
+
 # --- Variables ---
 # x[s, (c, sec)] = 1 if student s is assigned to (Course Name, Section)
 model.x = Var(model.Students, model.Sections, domain=Binary)
@@ -98,14 +101,40 @@ def section_size_rule(model, c, sec_num):
     return model.SectionSize[(c, sec_num)] == sum(model.x[s, (c, sec_num)] for s in model.Students)
 model.SectionSizeConstraint = Constraint(model.Sections, rule=section_size_rule)
 
+# Constraint: Link UnassignedCourses to assignments
+def unassigned_courses_rule(model, s):
+    requested = student_requests.get(s, set())
+    assigned = sum(
+        model.x[s, sec]
+        for c in requested
+        for sec in course_to_sections.get(c, set())
+        if sec in model.Sections
+    )
+    return model.UnassignedCourses[s] == len(requested) - assigned
+model.UnassignedCoursesConstraint = Constraint(model.Students, rule=unassigned_courses_rule)
+
+# Variables for min and max unassigned
+model.MinUnassigned = Var(domain=NonNegativeIntegers)
+model.MaxUnassigned = Var(domain=NonNegativeIntegers)
+
+# Constraints for min/max
+def min_unassigned_rule(model, s):
+    return model.MinUnassigned <= model.UnassignedCourses[s]
+model.MinUnassignedConstraint = Constraint(model.Students, rule=min_unassigned_rule)
+
+def max_unassigned_rule(model, s):
+    return model.MaxUnassigned >= model.UnassignedCourses[s]
+model.MaxUnassignedConstraint = Constraint(model.Students, rule=max_unassigned_rule)
 
 # --- Objective ---
 # Maximize number of assigned student-course pairs
 
 alpha = .1  # Can be modified
+beta = .1
 model.obj = Objective(
     expr=sum(model.x[s, sec] for s in model.Students for sec in model.Sections)
-        - alpha * sum(model.SectionDeviation[sec] for sec in model.Sections),
+        - alpha * sum(model.SectionDeviation[sec] for sec in model.Sections)
+        - beta * (model.MaxUnassigned - model.MinUnassigned),
     sense=maximize
 )
 
