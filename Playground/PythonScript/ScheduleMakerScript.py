@@ -5,7 +5,7 @@ import os
 import re
 
 # --- Load CSV data ---
-base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Data', 'BasicData'))
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Data', 'TwefthGrade'))
 students_df = pd.read_csv(os.path.join(base_dir, "Students.csv"))            # Student Name, Course Name
 schedules_df = pd.read_csv(os.path.join(base_dir, "Schedules.csv"))          # Course Name, Section, Capacity
 periods_df = pd.read_csv(os.path.join(base_dir, "Periods.csv"))              # Course Name, Section, Day of Week, Period Number
@@ -163,10 +163,10 @@ for s in model.Students:
                         break
                 if has_time_conflict:
                     break
-            if has_time_conflict:
-                reason = "Time Conflict"
-            elif not has_capacity:
+            if not has_capacity:
                 reason = "Capacity"
+            elif has_time_conflict:
+                reason = "Time Conflict"
             else:
                 reason = "Unknown"
             unassigned.append((s, c, reason))
