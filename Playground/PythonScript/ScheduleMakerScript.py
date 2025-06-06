@@ -5,7 +5,7 @@ import os
 import re
 
 # --- Load CSV data ---
-base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Data', 'TwefthGrade'))
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Data', 'TwelfthGrade'))
 students_df = pd.read_csv(os.path.join(base_dir, "Students.csv"))            # Student Name, Course Name
 schedules_df = pd.read_csv(os.path.join(base_dir, "Schedules.csv"))          # Course Name, Section, Capacity
 periods_df = pd.read_csv(os.path.join(base_dir, "Periods.csv"))              # Course Name, Section, Day of Week, Period Number
@@ -137,35 +137,30 @@ for s in model.Students:
     for c in requested_courses:
         assigned_sections = [sec for sec in course_to_sections.get(c, set()) if value(model.x[s, sec]) == 1]
         if not assigned_sections:
-            # Determine reason: capacity or time conflict
             sections = course_to_sections.get(c, set())
-            # Check if any section has available capacity
-            has_capacity = False
+            # Check if student could take any section if there were infinite capacity
+            could_take_if_no_capacity = False
             for sec in sections:
-                if value(model.SectionSize[sec]) < model.SectionCapacity[sec]:
-                    has_capacity = True
-                    break
-            # Check if student is blocked by time conflict for all sections
-            has_time_conflict = False
-            for sec in sections:
-                # Get all times for this section
                 times = section_to_times.get(sec, set())
+                has_conflict = False
                 for d, p in times:
-                    # Find all other sections student is assigned to at this time
                     for other_sec in model.Sections:
                         if other_sec == sec:
                             continue
                         if (other_sec[0], other_sec[1], d, p) in model.SectionPeriods:
                             if value(model.x[s, other_sec]) == 1:
-                                has_time_conflict = True
+                                has_conflict = True
                                 break
-                    if has_time_conflict:
+                    if has_conflict:
                         break
-                if has_time_conflict:
+                if not has_conflict:
+                    could_take_if_no_capacity = True
                     break
+            # Now check if any section has available capacity
+            has_capacity = any(value(model.SectionSize[sec]) < model.SectionCapacity[sec] for sec in sections)
             if not has_capacity:
                 reason = "Capacity"
-            elif has_time_conflict:
+            elif not could_take_if_no_capacity:
                 reason = "Time Conflict"
             else:
                 reason = "Unknown"
