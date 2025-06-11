@@ -10,6 +10,14 @@ students_df = pd.read_csv(os.path.join(base_dir, "Students.csv"))            # S
 schedules_df = pd.read_csv(os.path.join(base_dir, "Schedules.csv"))          # Course Name, Section, Capacity
 periods_df = pd.read_csv(os.path.join(base_dir, "Periods.csv"))              # Course Name, Section, Day of Week, Period Number
 
+days = list(periods_df["Day of Week"].unique())
+periods = sorted(periods_df["Period Number"].unique())
+
+# Build a lookup: (Course, Section) -> {(Day, Period)}
+section_to_times = {}
+for _, row in periods_df.iterrows():
+    key = (row["Course Name"], row["Section"])
+    section_to_times.setdefault(key, set()).add((row["Day of Week"], row["Period Number"]))
 
 # --- Initialize model ---
 model = ConcreteModel()
@@ -129,7 +137,7 @@ model.MaxUnassignedConstraint = Constraint(model.Students, rule=max_unassigned_r
 # --- Objective ---
 # Maximize number of assigned student-course pairs
 
-alpha = .1  # Can be modified
+alpha = .1
 beta = .1
 model.obj = Objective(
     expr=sum(model.x[s, sec] for s in model.Students for sec in model.Sections)
@@ -138,9 +146,15 @@ model.obj = Objective(
     sense=maximize
 )
 
-# --- Solver ---
+# --- Solver with time limit ---
 solver = SolverFactory('cbc')  # or 'glpk' or another MIP solver
+
+# Set a time limit of 10 seconds (CBC uses 'seconds' option)
+solver.options['seconds'] = 10
+
 result = solver.solve(model, tee=True)
+
+# Note: If the solver stops early, it will return the best feasible solution found so far.
 
 # --- Output assigned students ---
 results_dir = os.path.join(base_dir, "Results", "Main")
@@ -149,15 +163,6 @@ os.makedirs(results_dir, exist_ok=True)
 assigned = [(s, sec[0], sec[1]) for s in model.Students for sec in model.Sections if value(model.x[s, sec]) == 1]
 assigned_df = pd.DataFrame(assigned, columns=["Student Name", "Course Name", "Section"])
 assigned_df.to_csv(os.path.join(results_dir, "student_schedules.csv"), index=False)
-
-days = list(periods_df["Day of Week"].unique())
-periods = sorted(periods_df["Period Number"].unique())
-
-# Build a lookup: (Course, Section) -> {(Day, Period)}
-section_to_times = {}
-for _, row in periods_df.iterrows():
-    key = (row["Course Name"], row["Section"])
-    section_to_times.setdefault(key, set()).add((row["Day of Week"], row["Period Number"]))
 
 # --- Output unassigned requested courses per student ---
 unassigned = []
