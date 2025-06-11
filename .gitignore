@@ -45,3 +45,5 @@ buildNumber.properties
 
 Data/
 SQL/
+
+*.pyc
