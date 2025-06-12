@@ -2,8 +2,6 @@ import os
 import pandas as pd
 from optimization.schedule_optimizer import ScheduleOptimizer
 
-#TODO: Add/Test Data Validation
-
 def get_data(DataType):
     # Path to your test data
     data_dir = os.path.join(os.path.dirname(__file__), "data", DataType)
