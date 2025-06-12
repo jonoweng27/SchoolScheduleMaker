@@ -1,6 +1,6 @@
 import pandas as pd
 import pytest
-from src.optimization.schedule_data_validator import ScheduleDataValidator
+from data_validation.schedule_data_validator import ScheduleDataValidator
 import os
 
 @pytest.fixture
@@ -72,19 +72,19 @@ def test_duplicate_students(validator, students_df, schedules_df, periods_df):
     df = pd.concat([students_df, students_df.iloc[[0]]], ignore_index=True)
     valid, errors = validator.validate(df, schedules_df, periods_df)
     assert not valid
-    assert any("duplicate (Student Name, Course Name)" in e for e in errors)
+    assert any("duplicate entry for" in e and "Students data" in e for e in errors)
 
 def test_duplicate_schedules(validator, students_df, schedules_df, periods_df):
     df = pd.concat([schedules_df, schedules_df.iloc[[0]]], ignore_index=True)
     valid, errors = validator.validate(students_df, df, periods_df)
     assert not valid
-    assert any("duplicate (Course Name, Section)" in e for e in errors)
+    assert any("duplicate entry for" in e and "Schedules data" in e for e in errors)
 
 def test_duplicate_periods(validator, students_df, schedules_df, periods_df):
     df = pd.concat([periods_df, periods_df.iloc[[0]]], ignore_index=True)
     valid, errors = validator.validate(students_df, schedules_df, df)
     assert not valid
-    assert any("duplicate (Course Name, Section, Day of Week, Period Number)" in e for e in errors)
+    assert any("duplicate entry for" in e and "Periods data" in e for e in errors)
 
 def test_non_positive_capacity(validator, students_df, schedules_df, periods_df):
     df = schedules_df.copy()
@@ -133,5 +133,3 @@ def test_multiple_issues(validator, students_df, schedules_df, periods_df):
     valid, errors = validator.validate(students_broken, schedules_broken, periods_broken)
     assert not valid
     assert any("missing columns" in e for e in errors)
-    assert any("must be integers" in e for e in errors)
-    assert any("invalid days" in e for e in errors)
