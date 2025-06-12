@@ -45,7 +45,7 @@ def test_non_integer_section(validator, students_df, schedules_df, periods_df):
     df.loc[0, "Section"] = "A"
     valid, errors = validator.validate(students_df, df, periods_df)
     assert not valid
-    assert any("must be integers" in e for e in errors)
+    assert any("must contain integer-like values" in e for e in errors)
 
 def test_invalid_day(validator, students_df, schedules_df, periods_df):
     df = periods_df.copy()

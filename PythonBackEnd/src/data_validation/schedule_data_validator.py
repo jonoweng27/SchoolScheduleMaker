@@ -13,6 +13,7 @@ class ScheduleDataValidator:
             lambda: self._validate_students(students_df),
             lambda: self._validate_schedules(schedules_df),
             lambda: self._validate_periods(periods_df),
+            lambda: self._check_empty(students_df, schedules_df, periods_df),
             lambda: self._check_duplicates(students_df, schedules_df, periods_df),
             lambda: self._check_referential_integrity(students_df, schedules_df, periods_df),
             lambda: self._check_capacity(schedules_df),
@@ -166,6 +167,16 @@ class ScheduleDataValidator:
                 self.errors.append(
                     f"Periods data has 'Period Number' outside valid range ({min_period}-{max_period}) (rows: {self._display_rows(invalid_rows)})."
                 )
+    
+    # Check if any of the dataframes are empty
+    def _check_empty(self, students_df, schedules_df, periods_df):
+        if students_df.empty:
+            self.errors.append("Students data is empty.")
+        if schedules_df.empty:
+            self.errors.append("Schedules data is empty.")
+        if periods_df.empty:
+            self.errors.append("Periods data is empty.")
+
     # Convert DataFrame index list to user-facing row numbers (header is row 1)
     def _display_rows(self, indices):
         return [i + 2 for i in indices]
