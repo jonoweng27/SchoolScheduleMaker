@@ -49,7 +49,9 @@ class ScheduleDataValidator:
         for col in ["Section", "Period Number"]:
             if col in df.columns and not df[col].isnull().any():
                 self._check_int(df, [col], "Periods")
-        self._check_days(df, "Day of Week", "Periods")
+        # Only check days if columns and nulls returned no errors
+        if not self.errors:
+            self._check_days(df, "Day of Week", "Periods")
 
     # Check if any required columns are missing
     def _check_columns(self, df, required, name):
@@ -85,12 +87,16 @@ class ScheduleDataValidator:
                     )
 
 
-    # Check if the 'Day of Week' column contains valid days
+    # Check if the 'Day of Week' column contains valid days (case-insensitive)
     def _check_days(self, df, col, name):
         if col in df.columns:
-            invalid_days = set(df[col].unique()) - self.VALID_DAYS
-            if invalid_days:
-                invalid_rows = df[df[col].isin(invalid_days)].index.tolist()
+            # Normalize both the column values and valid days to lower case for comparison
+            valid_days_lower = {d.lower() for d in self.VALID_DAYS}
+            col_lower = df[col].astype(str).str.lower()
+            invalid_mask = ~col_lower.isin(valid_days_lower)
+            if invalid_mask.any():
+                invalid_days = set(col_lower[invalid_mask].unique())
+                invalid_rows = df.index[invalid_mask].tolist()
                 self.errors.append(
                     f"{name} data has invalid days: {', '.join(map(str, invalid_days))} (rows: {self._display_rows(invalid_rows)})"
                 )
