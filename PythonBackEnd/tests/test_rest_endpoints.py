@@ -81,7 +81,7 @@ def test_class_roster_high_math_section_1_case_insensitive(client):
 
 
 
-@pytest.mark.run(order=15)
+@pytest.mark.run(order=6)
 def test_get_unassigned_courses(client):
     # Ensure test data is uploaded before calling the endpoint
     base_dir = os.path.join(os.path.dirname(__file__), "data", "MixedCaseData")
