@@ -10,15 +10,9 @@ def client():
     with flask_app.test_client() as client:
         yield client
 
-def pytest_runtest_makereport(item, call):
-    """Hook to stop further tests in this module if one fails."""
-    if call.when == 'call' and call.excinfo is not None:
-        pytest.exit("Test failed, stopping further tests in this module.")
-
 
 # Test cases for the REST API endpoints in the Flask application
-@pytest.mark.run(order=1)
-def test_upload_files(client):
+def test_straight_path(client):
     base_dir = os.path.join(os.path.dirname(__file__), "data", "BasicData")
     with open(os.path.join(base_dir, 'Students.csv'), 'rb') as students_file, \
          open(os.path.join(base_dir, 'Schedules.csv'), 'rb') as schedules_file, \
@@ -34,8 +28,6 @@ def test_upload_files(client):
     assert json_data['status'] == 'Success'
     assert json_data['message'] == 'Files uploaded'
 
-@pytest.mark.run(order=2)
-def test_validate(client):
     response = client.get('/validate')
     assert response.status_code == 200
     json_data = response.get_json()
@@ -43,18 +35,13 @@ def test_validate(client):
     assert isinstance(json_data['errors'], list)
     assert len(json_data['errors']) == 0
 
-
-@pytest.mark.run(order=3)
-def test_optimize(client):
     response = client.post('/optimize')
     assert response.status_code == 200
     json_data = response.get_json()
     assert json_data['status'] == 'Success'
     assert json_data['message'] == 'Optimization complete'
 
-@pytest.mark.run(order=4)
-def test_class_roster_high_math_section_1(client):
-    # Call class_roster for "High Math", section 1 using query parameters
+    # Test /class_roster endpoint for "High Math", section 1
     response = client.get('/class_roster?course=High Math&section=1')
     assert response.status_code == 200
     json_data = response.get_json()
@@ -62,27 +49,18 @@ def test_class_roster_high_math_section_1(client):
         json_data = json.loads(response.data.decode('utf-8'))
     assert isinstance(json_data, list)
     assert len(json_data) > 0
-    # Save for comparison in next test
-    global high_math_section_1_roster
     high_math_section_1_roster = json_data
 
-@pytest.mark.run(order=5)
-def test_class_roster_high_math_section_1_case_insensitive(client):
-    # Call class_roster for "hIgH MAtH", section 1 (case-insensitive) using query parameters
+    # Test /class_roster endpoint for "hIgH MAtH", section 1 (case-insensitive)
     response = client.get('/class_roster?course=hIgH MAtH&section=1')
     assert response.status_code == 200
-    json_data = response.get_json()
-    if json_data is None:
-        json_data = json.loads(response.data.decode('utf-8'))
-    assert isinstance(json_data, list)
-    # Compare with previous result
-    global high_math_section_1_roster
-    assert json_data == high_math_section_1_roster
+    json_data_case = response.get_json()
+    if json_data_case is None:
+        json_data_case = json.loads(response.data.decode('utf-8'))
+    assert isinstance(json_data_case, list)
+    assert json_data_case == high_math_section_1_roster
 
-
-
-@pytest.mark.run(order=6)
-def test_get_unassigned_courses(client):
+def test_mixed_case(client):
     # Ensure test data is uploaded before calling the endpoint
     base_dir = os.path.join(os.path.dirname(__file__), "data", "MixedCaseData")
     with open(os.path.join(base_dir, 'Students.csv'), 'rb') as students_file, \
@@ -115,3 +93,33 @@ def test_get_unassigned_courses(client):
     assert student_names == {'G', 'H', 'I', 'J'}
     reasons = {course['Reason'] for course in json_data}
     assert reasons == {'Time Conflict'}
+
+    
+def test_bad_data(client):
+    # Attempt to upload malformed or incomplete data files
+    base_dir = os.path.join(os.path.dirname(__file__), "data", "BadData")
+    with open(os.path.join(base_dir, 'Students.csv'), 'rb') as students_file, \
+            open(os.path.join(base_dir, 'Schedules.csv'), 'rb') as schedules_file, \
+            open(os.path.join(base_dir, 'Periods.csv'), 'rb') as periods_file:
+        data = {
+            'students': (students_file, 'Students.csv'),
+            'schedules': (schedules_file, 'Schedules.csv'),
+            'periods': (periods_file, 'Periods.csv')
+        }
+        response = client.post('/upload', data=data, content_type='multipart/form-data')
+    assert response.status_code == 200
+    json_data = response.get_json()
+    assert json_data['status'] == 'Success'
+    assert json_data['message'] == 'Files uploaded'
+
+    # Validate should fail due to bad data
+    response = client.get('/validate')
+    assert response.status_code == 200
+    json_data = response.get_json()
+    assert json_data['valid'] is False
+    assert isinstance(json_data['errors'], list)
+    assert len(json_data['errors']) > 0
+
+    # Optimize should not succeed if validation failed
+    response = client.post('/optimize')
+    assert response.status_code == 400 or response.get_json()['status'] == 'Error'

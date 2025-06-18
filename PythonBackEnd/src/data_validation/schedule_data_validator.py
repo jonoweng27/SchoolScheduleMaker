@@ -9,15 +9,16 @@ class ScheduleDataValidator:
     def validate(self, students_df, schedules_df, periods_df):
         self.errors.clear()  
         # List of validation steps in order
+        # Group validation steps that can be done in parallel
         validation_steps = [
-            lambda: self._validate_students(students_df),
-            lambda: self._validate_schedules(schedules_df),
-            lambda: self._validate_periods(periods_df),
+            lambda: [self._validate_students(students_df),
+                 self._validate_schedules(schedules_df),
+                 self._validate_periods(periods_df)],
             lambda: self._check_empty(students_df, schedules_df, periods_df),
             lambda: self._check_duplicates(students_df, schedules_df, periods_df),
             lambda: self._check_referential_integrity(students_df, schedules_df, periods_df),
-            lambda: self._check_capacity(schedules_df),
-            lambda: self._check_period_number(periods_df),
+            lambda: [self._check_capacity(schedules_df),
+                 self._check_period_number(periods_df)],
         ]
         for step in validation_steps:
             if self.errors:
