@@ -23,6 +23,35 @@ def generate_basic_data_model():
     optimizer.run_solver(students_df, schedules_df, periods_df)
     return optimizer
 
+def assert_all_courses_accounted_for(DataType):
+    students_df, schedules_df, periods_df = get_data(DataType)
+    # Run optimizer
+    optimizer = ScheduleOptimizer()
+    optimizer.run_solver(students_df, schedules_df, periods_df)
+
+    # Build set of all (student, course) requests from input
+    requested_pairs = set(
+        (row['Student Name'], row['Course Name'])
+        for _, row in students_df.iterrows()
+    )
+
+    # Get assigned and unassigned pairs from optimizer
+    assigned_df = optimizer.get_assigned_courses()
+    assigned_pairs = set(
+        (row['Student Name'], row['Course Name'])
+        for _, row in assigned_df.iterrows()
+    )
+
+    unassigned_df = optimizer.get_unassigned_courses()
+    unassigned_pairs = set(
+        (row['Student Name'], row['Unassigned Course'])
+        for _, row in unassigned_df.iterrows()
+    )
+
+    # All requested pairs should be accounted for in assigned or unassigned
+    accounted_pairs = assigned_pairs | unassigned_pairs
+    assert requested_pairs == accounted_pairs, f"Missing or extra assignments: {requested_pairs ^ accounted_pairs}"
+
 def test_assigned_courses():
     optimizer = generate_basic_data_model()
     assigned_df = optimizer.get_assigned_courses()
@@ -33,6 +62,7 @@ def test_unassigned_courses():
     unassigned_df = optimizer.get_unassigned_courses()
     assert len(unassigned_df) == 4
     assert set(['G', 'H', 'I', 'J']).issubset(set(unassigned_df['Student Name'].values))
+
 
 def test_class_roster():
     optimizer = generate_basic_data_model()
@@ -107,3 +137,9 @@ def test_twelfth_grade():
     required_courses = set(students_df[students_df['Student Name'] == 'Joshua Trauring']['Course Name'].values)
     assigned_courses = set(optimizer.get_assigned_courses()[optimizer.get_assigned_courses()['Student Name'] == 'Joshua Trauring']['Course Name'].values)
     assert required_courses == assigned_courses, f"Mismatch for Joshua Trauring: required {required_courses}, assigned {assigned_courses}"
+
+def test_all_courses_accounted_for_basic():
+    assert_all_courses_accounted_for("BasicData")
+
+def test_all_courses_accounted_for_twelfth():
+    assert_all_courses_accounted_for("TwelfthGrade")
