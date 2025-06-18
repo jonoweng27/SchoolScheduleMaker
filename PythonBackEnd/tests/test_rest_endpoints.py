@@ -16,7 +16,7 @@ def pytest_runtest_makereport(item, call):
         pytest.exit("Test failed, stopping further tests in this module.")
 
 
-# Now you can write your test cases using the 'client' fixture.
+# Test cases for the REST API endpoints in the Flask application
 @pytest.mark.run(order=1)
 def test_upload_files(client):
     base_dir = os.path.join(os.path.dirname(__file__), "data", "BasicData")
