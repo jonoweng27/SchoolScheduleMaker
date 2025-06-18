@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, session, send_file
 import pandas as pd
 from data_validation.schedule_data_validator import ScheduleDataValidator
 from optimization.schedule_optimizer import ScheduleOptimizer
+from utils import normalize_dataframe, smart_title
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'  # Needed for session
@@ -41,13 +42,16 @@ def upload_data():
         schedules = read_csv_file('schedules')
         periods = read_csv_file('periods')
 
+        students = normalize_dataframe(students, value_columns=['Student Name', 'Course Name'])
+        schedules = normalize_dataframe(schedules, value_columns=['Course Name'])
+        periods = normalize_dataframe(periods, value_columns=['Course Name', 'Day of Week'])
+
         if empty_csvs:
             return jsonify({
                 "status": "Error",
                 "message": f"The following CSVs are empty: {', '.join(empty_csvs)}"
             }), 400
 
-        print('printed periods')
         DATA['students'] = students
         DATA['schedules'] = schedules
         DATA['periods'] = periods
@@ -110,6 +114,8 @@ def get_class_roster():
     if not course or not section:
         return jsonify({"status": "Error", "message": "Missing course or section parameter"}), 400
     try:
+        # Normalize input for matching
+        course = smart_title(course)
         df = optimizer.get_class_roster(course, int(section))
         if df is None or df.empty:
             return jsonify({"status": "Error", "message": "The given course/section does not exist"}), 404
@@ -126,6 +132,8 @@ def get_student_schedule():
     if not student:
         return jsonify({"status": "Error", "message": "Missing student parameter"}), 400
     try:
+        # Normalize input for matching
+        student = smart_title(student)
         df = optimizer.get_student_schedule(student)
         if df is None or (hasattr(df, 'empty') and df.empty):
             return jsonify({"status": "Error", "message": "Student does not exist"}), 404

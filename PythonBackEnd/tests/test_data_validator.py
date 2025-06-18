@@ -54,6 +54,21 @@ def test_invalid_day(validator, students_df, schedules_df, periods_df):
     assert not valid
     assert any("invalid days" in e for e in errors)
 
+
+def test_extra_columns_ignored(validator, students_df, schedules_df, periods_df):
+    df = students_df.copy()
+    df["Extra Column"] = "extra"
+    valid, errors = validator.validate(df, schedules_df, periods_df)
+    assert valid
+    assert errors == []
+
+def test_whitespace_in_column_names(validator, students_df, schedules_df, periods_df):
+    df = students_df.copy()
+    df = df.rename(columns={"Course Name": " Course Name "})
+    valid, errors = validator.validate(df, schedules_df, periods_df)
+    assert not valid
+    assert any("missing columns" in e for e in errors)
+
 def test_referential_integrity_students(validator, students_df, schedules_df, periods_df):
     df = students_df.copy()
     df.loc[0, "Course Name"] = "Nonexistent Course"
@@ -67,6 +82,18 @@ def test_referential_integrity_periods(validator, students_df, schedules_df, per
     valid, errors = validator.validate(students_df, schedules_df, df)
     assert not valid
     assert any("references unknown course-section pairs" in e for e in errors)
+
+def test_schedule_course_section_missing_in_periods(validator, students_df, schedules_df, periods_df):
+    # Remove a (Course Name, Section) pair from periods_df that exists in schedules_df
+    # Pick the first row from schedules_df
+    course_name = schedules_df.iloc[0]["Course Name"]
+    section = schedules_df.iloc[0]["Section"]
+    # Remove this pair from periods_df
+    mask = ~((periods_df["Course Name"] == course_name) & (periods_df["Section"] == section))
+    periods_broken = periods_df[mask].copy()
+    valid, errors = validator.validate(students_df, schedules_df, periods_broken)
+    assert not valid
+    assert any("Schedules data has course-section(s) that do not meet at all" in e for e in errors)
 
 def test_duplicate_students(validator, students_df, schedules_df, periods_df):
     df = pd.concat([students_df, students_df.iloc[[0]]], ignore_index=True)

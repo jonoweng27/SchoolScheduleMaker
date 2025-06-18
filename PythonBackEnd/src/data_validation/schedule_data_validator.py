@@ -87,15 +87,12 @@ class ScheduleDataValidator:
                     )
 
 
-    # Check if the 'Day of Week' column contains valid days (case-insensitive)
+    # Check if the 'Day of Week' column contains valid days
     def _check_days(self, df, col, name):
         if col in df.columns:
-            # Normalize both the column values and valid days to lower case for comparison
-            valid_days_lower = {d.lower() for d in self.VALID_DAYS}
-            col_lower = df[col].astype(str).str.lower()
-            invalid_mask = ~col_lower.isin(valid_days_lower)
+            invalid_mask = ~df[col].isin(self.VALID_DAYS)
             if invalid_mask.any():
-                invalid_days = set(col_lower[invalid_mask].unique())
+                invalid_days = set(df[col][invalid_mask].unique())
                 invalid_rows = df.index[invalid_mask].tolist()
                 self.errors.append(
                     f"{name} data has invalid days: {', '.join(map(str, invalid_days))} (rows: {self._display_rows(invalid_rows)})"
@@ -123,6 +120,20 @@ class ScheduleDataValidator:
                 ].index.tolist()
                 self.errors.append(
                     f"Periods data references unknown course-section pairs: {invalid_periods} (rows: {self._display_rows(invalid_rows)})"
+                )
+        # Check if any course-section in schedules does not have a corresponding period (i.e., does not meet at all)
+        if {"Course Name", "Section"}.issubset(schedules_df.columns) and {"Course Name", "Section"}.issubset(periods_df.columns):
+            schedule_keys = set(zip(schedules_df["Course Name"], schedules_df["Section"]))
+            period_keys = set(zip(periods_df["Course Name"], periods_df["Section"]))
+            missing_periods = schedule_keys - period_keys
+            if missing_periods:
+                invalid_rows = schedules_df[
+                    schedules_df.apply(
+                        lambda row: (row["Course Name"], row["Section"]) in missing_periods, axis=1
+                    )
+                ].index.tolist()
+                self.errors.append(
+                    f"Schedules data has course-section(s) that do not meet at all: {missing_periods} (rows: {self._display_rows(invalid_rows)})"
                 )
 
     # Check for duplicates in students, schedules, and periods data
