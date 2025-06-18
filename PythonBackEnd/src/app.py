@@ -115,7 +115,12 @@ def get_class_roster():
         return jsonify({"status": "Error", "message": "Missing course or section parameter"}), 400
     try:
         # Normalize input for matching
-        course = smart_title(course)
+        # Find the matching course name in the schedules DataFrame (case-insensitive)
+        schedules_df = DATA['schedules']
+        match = schedules_df['Course Name'].str.lower() == course.strip().lower()
+        if not match.any():
+            return jsonify({"status": "Error", "message": "The given course/section does not exist"}), 404
+        course = schedules_df.loc[match, 'Course Name'].iloc[0]
         df = optimizer.get_class_roster(course, int(section))
         if df is None or df.empty:
             return jsonify({"status": "Error", "message": "The given course/section does not exist"}), 404
@@ -133,7 +138,12 @@ def get_student_schedule():
         return jsonify({"status": "Error", "message": "Missing student parameter"}), 400
     try:
         # Normalize input for matching
-        student = smart_title(student)
+        # Find the matching student name in the students DataFrame (case-insensitive)
+        students_df = DATA['students']
+        match = students_df['Student Name'].str.lower() == student.strip().lower()
+        if not match.any():
+            return jsonify({"status": "Error", "message": "Student does not exist"}), 404
+        student = students_df.loc[match, 'Student Name'].iloc[0]
         df = optimizer.get_student_schedule(student)
         if df is None or (hasattr(df, 'empty') and df.empty):
             return jsonify({"status": "Error", "message": "Student does not exist"}), 404

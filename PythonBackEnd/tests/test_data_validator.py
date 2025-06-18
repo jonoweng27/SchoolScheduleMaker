@@ -113,6 +113,40 @@ def test_duplicate_periods(validator, students_df, schedules_df, periods_df):
     assert not valid
     assert any("duplicate entry for" in e and "Periods data" in e for e in errors)
 
+def test_duplicate_students_case_insensitive(validator, students_df, schedules_df, periods_df):
+    # Make a duplicate row with different case in 'Student Name' and 'Course Name'
+    df = students_df.copy()
+    dup = df.iloc[0].copy()
+    if "Student Name" in dup and "Course Name" in dup:
+        dup["Student Name"] = str(dup["Student Name"]).swapcase()
+        dup["Course Name"] = str(dup["Course Name"]).swapcase()
+    df = pd.concat([df, pd.DataFrame([dup])], ignore_index=True)
+    valid, errors = validator.validate(df, schedules_df, periods_df)
+    assert not valid
+    assert any("duplicate entry for" in e and "Students data" in e for e in errors)
+
+def test_duplicate_schedules_case_insensitive(validator, students_df, schedules_df, periods_df):
+    # Make a duplicate row with different case in 'Course Name'
+    df = schedules_df.copy()
+    dup = df.iloc[0].copy()
+    if "Course Name" in dup:
+        dup["Course Name"] = str(dup["Course Name"]).swapcase()
+    df = pd.concat([df, pd.DataFrame([dup])], ignore_index=True)
+    valid, errors = validator.validate(students_df, df, periods_df)
+    assert not valid
+    assert any("duplicate entry for" in e and "Schedules data" in e for e in errors)
+
+def test_duplicate_periods_case_insensitive(validator, students_df, schedules_df, periods_df):
+    # Make a duplicate row with different case in 'Course Name'
+    df = periods_df.copy()
+    dup = df.iloc[0].copy()
+    if "Course Name" in dup:
+        dup["Course Name"] = str(dup["Course Name"]).swapcase()
+    df = pd.concat([df, pd.DataFrame([dup])], ignore_index=True)
+    valid, errors = validator.validate(students_df, schedules_df, df)
+    assert not valid
+    assert any("duplicate entry for" in e and "Periods data" in e for e in errors)
+
 def test_non_positive_capacity(validator, students_df, schedules_df, periods_df):
     df = schedules_df.copy()
     df.loc[0, "Capacity"] = -1

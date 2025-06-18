@@ -137,36 +137,52 @@ class ScheduleDataValidator:
                     f"Schedules data has course-section(s) that do not meet at all: {missing_periods} (rows: {self._display_rows(invalid_rows)})"
                 )
 
-    # Check for duplicates in students, schedules, and periods data
+    # Check for duplicates in students, schedules, and periods data (case-insensitive)
     def _check_duplicates(self, students_df, schedules_df, periods_df):
-        # Students: no duplicate (Student Name, Course Name)
+        # Students: no duplicate (Student Name, Course Name), case-insensitive
         if {"Student Name", "Course Name"}.issubset(students_df.columns):
-            dup_mask = students_df.duplicated(subset=["Student Name", "Course Name"], keep=False)
+            temp = students_df.copy()
+            temp["Student Name_lower"] = temp["Student Name"].astype(str).str.lower()
+            temp["Course Name_lower"] = temp["Course Name"].astype(str).str.lower()
+            dup_mask = temp.duplicated(subset=["Student Name_lower", "Course Name_lower"], keep=False)
             if dup_mask.any():
-                dup_groups = students_df[dup_mask].groupby(["Student Name", "Course Name"]).groups
+                dup_groups = temp[dup_mask].groupby(["Student Name_lower", "Course Name_lower"]).groups
                 for key, indices in dup_groups.items():
+                    orig_keys = students_df.loc[list(indices)][["Student Name", "Course Name"]].iloc[0].tolist()
                     self.errors.append(
-                    f"Students data has duplicate entry for {key} at rows: {self._display_rows(list(indices))}"
+                        f"Students data has duplicate entry for {tuple(orig_keys)} at rows: {self._display_rows(list(indices))}"
                     )
-        # Schedules: unique (Course Name, Section)
+        # Schedules: unique (Course Name, Section), case-insensitive for Course Name
         if {"Course Name", "Section"}.issubset(schedules_df.columns):
-            dup_mask = schedules_df.duplicated(subset=["Course Name", "Section"], keep=False)
+            temp = schedules_df.copy()
+            temp["Course Name_lower"] = temp["Course Name"].astype(str).str.lower()
+            temp["Section_str"] = temp["Section"].astype(str)
+            dup_mask = temp.duplicated(subset=["Course Name_lower", "Section_str"], keep=False)
             if dup_mask.any():
-                dup_groups = schedules_df[dup_mask].groupby(["Course Name", "Section"]).groups
+                dup_groups = temp[dup_mask].groupby(["Course Name_lower", "Section_str"]).groups
                 for key, indices in dup_groups.items():
+                    orig_keys = schedules_df.loc[list(indices)][["Course Name", "Section"]].iloc[0].tolist()
                     self.errors.append(
-                    f"Schedules data has duplicate entry for {key} at rows: {self._display_rows(list(indices))}"
+                        f"Schedules data has duplicate entry for {tuple(orig_keys)} at rows: {self._display_rows(list(indices))}"
                     )
-        # Periods: unique (Course Name, Section, Day of Week, Period Number)
+        # Periods: unique (Course Name, Section, Day of Week, Period Number), case-insensitive for string columns
         if {"Course Name", "Section", "Day of Week", "Period Number"}.issubset(periods_df.columns):
-            dup_mask = periods_df.duplicated(subset=["Course Name", "Section", "Day of Week", "Period Number"], keep=False)
+            temp = periods_df.copy()
+            temp["Course Name_lower"] = temp["Course Name"].astype(str).str.lower()
+            temp["Section_str"] = temp["Section"].astype(str)
+            temp["Day of Week_lower"] = temp["Day of Week"].astype(str).str.lower()
+            temp["Period Number_str"] = temp["Period Number"].astype(str)
+            dup_mask = temp.duplicated(
+                subset=["Course Name_lower", "Section_str", "Day of Week_lower", "Period Number_str"], keep=False
+            )
             if dup_mask.any():
-                dup_groups = periods_df[dup_mask].groupby(
-                    ["Course Name", "Section", "Day of Week", "Period Number"]
+                dup_groups = temp[dup_mask].groupby(
+                    ["Course Name_lower", "Section_str", "Day of Week_lower", "Period Number_str"]
                 ).groups
                 for key, indices in dup_groups.items():
+                    orig_keys = periods_df.loc[list(indices)][["Course Name", "Section", "Day of Week", "Period Number"]].iloc[0].tolist()
                     self.errors.append(
-                    f"Periods data has duplicate entry for {key} at rows: {self._display_rows(list(indices))}"
+                        f"Periods data has duplicate entry for {tuple(orig_keys)} at rows: {self._display_rows(list(indices))}"
                     )
 
     # Check for non-positive capacity values in schedules
