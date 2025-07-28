@@ -237,12 +237,12 @@ class ScheduleOptimizer:
 
     # --- Output class rosters for a given course and section ---
     def get_class_roster(self, course, section):
-        model = self.model
-        sec_key = (course, section)
-        if sec_key not in model.Sections:
+        # Get all assignments and filter by course and section
+        assignments = self.get_assignments()
+        assigned_students = [s for s, c, sec in assignments if c == course and str(sec) == str(section)]
+        if not assigned_students:
             return pd.DataFrame(columns=["Student Name"])
-        members = [s for s in model.Students if value(model.x[s, sec_key]) == 1]
-        return pd.DataFrame({"Student Name": members})
+        return pd.DataFrame(assigned_students, columns=["Student Name"])
 
     # --- Output class rosters for all sections ---
     def get_all_class_rosters(self):
@@ -279,3 +279,20 @@ class ScheduleOptimizer:
         for s in self.model.Students:
             schedules[s] = self.get_student_schedule(s)
         return schedules
+    
+    # Returns a list of (student, course, section) tuples where assigned
+    def get_assignments(self): 
+        return [
+            (s, sec[0], sec[1])
+            for s in self.model.Students
+            for sec in self.model.Sections
+            if value(self.model.x[s, sec]) == 1
+        ]
+
+     # Set all assignments to 0, then set those in the list to 1
+    def set_assignments(self, assignments):
+        for s in self.model.Students:
+            for sec in self.model.Sections:
+                self.model.x[s, sec].value = 0
+        for s, c, sec in assignments:
+            self.model.x[s, (c, sec)].value = 1
