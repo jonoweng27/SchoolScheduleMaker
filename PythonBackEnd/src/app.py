@@ -80,6 +80,8 @@ def upload_data():
         Students.query.filter_by(user_id=user_id).delete()
         Schedules.query.filter_by(user_id=user_id).delete()
         Periods.query.filter_by(user_id=user_id).delete()
+        ValidationResults.query.filter_by(user_id=user_id).delete()
+        OptimizationResults.query.filter_by(user_id=user_id).delete()
         db.session.commit()
 
 
@@ -124,8 +126,6 @@ def validate_data():
     validator = ScheduleDataValidator()
     valid, errors = validator.validate(students, schedules, periods)
 
-    # Remove old validation results for this user
-    ValidationResults.query.filter_by(user_id=user_id).delete()
     db.session.add(ValidationResults(user_id=user_id, valid=valid, errors=errors))
     db.session.commit()
 
@@ -156,10 +156,6 @@ def optimize_schedule():
     
     # Serialize only the assignments
     assignments = optimizer.get_assignments()
-
-    # Delete any old optimization results for this user
-    OptimizationResults.query.filter_by(user_id=user_id).delete()
-    db.session.commit()
 
     # Store the assignments in the optimization_results table (as JSON)
     db.session.add(OptimizationResults(user_id=user_id, assignments_json=assignments))
