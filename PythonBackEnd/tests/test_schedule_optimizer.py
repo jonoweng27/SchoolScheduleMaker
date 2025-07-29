@@ -44,7 +44,7 @@ def assert_all_courses_accounted_for(DataType):
 
     unassigned_df = optimizer.get_unassigned_courses()
     unassigned_pairs = set(
-        (row['Student Name'], row['Unassigned Course'])
+        (row['Student Name'], row['Unassigned Course Name'])
         for _, row in unassigned_df.iterrows()
     )
 

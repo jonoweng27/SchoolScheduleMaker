@@ -288,11 +288,23 @@ def get_all_class_rosters():
     user_id = session.get('user_id')
     if not is_data_optimized(user_id):
         return jsonify({"status": "Error", "message": "Data not optimized"}), 400
-    results = StudentSchedules.query.filter_by(user_id=user_id).all()
+
+    # Get all classes/sections for this user
+    classes = Schedules.query.filter_by(user_id=user_id).all()
     rosters = {}
+    for c in classes:
+        key = f"{c.course_name}.{c.section}"
+        rosters[key] = []
+
+    # Get all student assignments
+    results = StudentSchedules.query.filter_by(user_id=user_id).all()
     for r in results:
         key = f"{r.course_name}.{r.section}"
-        rosters.setdefault(key, []).append(r.student_name)
+        if key in rosters:
+            rosters[key].append(r.student_name)
+        else:
+            rosters[key] = [r.student_name]
+
     return jsonify(rosters)
 
 @app.route('/all_student_schedules', methods=['GET'])
