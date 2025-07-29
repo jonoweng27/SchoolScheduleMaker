@@ -41,7 +41,7 @@ class ValidationResults(db.Model):
     errors = db.Column('Errors', db.JSON, nullable=True)
     created_at = db.Column('Created At', db.DateTime, server_default=db.func.now())
 
-class StudentSchedules(db.Model):
+class AssignedCourses(db.Model):
     __tablename__ = 'assigned_courses'
     id = db.Column('ID', db.Integer, primary_key=True)
     user_id = db.Column('User ID', db.String(128), db.ForeignKey('users.ID', ondelete='CASCADE'), nullable=False)

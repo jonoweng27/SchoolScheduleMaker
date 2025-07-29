@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, session
 import pandas as pd
-from models import db, Students, Schedules, Periods, ValidationResults, StudentSchedules, UnassignedCourses
+from models import db, Students, Schedules, Periods, ValidationResults, AssignedCourses, UnassignedCourses
 from data_validation.schedule_data_validator import ScheduleDataValidator
 from optimization.schedule_optimizer import ScheduleOptimizer
 from utils import normalize_dataframe
@@ -24,6 +24,7 @@ def require_login(f):
         return f(*args, **kwargs)
     return decorated_function
 
+# Get the uploaded data for a user
 def get_user_uploaded_data(user_id):
     students = pd.read_sql(Students.query.filter_by(user_id=user_id).statement, db.engine)
     schedules = pd.read_sql(Schedules.query.filter_by(user_id=user_id).statement, db.engine)
@@ -32,8 +33,9 @@ def get_user_uploaded_data(user_id):
         return None, None, None
     return students, schedules, periods
 
+# Checks if the data for a user has been optimized
 def is_data_optimized(user_id):
-    assigned_exists = db.session.query(StudentSchedules.query.filter_by(user_id=user_id).exists()).scalar()
+    assigned_exists = db.session.query(AssignedCourses.query.filter_by(user_id=user_id).exists()).scalar()
     unassigned_exists = db.session.query(UnassignedCourses.query.filter_by(user_id=user_id).exists()).scalar()
     return assigned_exists or unassigned_exists
 
@@ -71,6 +73,7 @@ def upload_data():
         schedules = read_csv_file('schedules')
         periods = read_csv_file('periods')
 
+        # Normalize dataframes
         students = normalize_dataframe(students, value_columns=['Student Name', 'Course Name'])
         schedules = normalize_dataframe(schedules, value_columns=['Course Name'])
         periods = normalize_dataframe(periods, value_columns=['Course Name', 'Day of Week'])
@@ -86,9 +89,8 @@ def upload_data():
         Schedules.query.filter_by(user_id=user_id).delete()
         Periods.query.filter_by(user_id=user_id).delete()
         ValidationResults.query.filter_by(user_id=user_id).delete()
-        StudentSchedules.query.filter_by(user_id=user_id).delete()
+        AssignedCourses.query.filter_by(user_id=user_id).delete()
         UnassignedCourses.query.filter_by(user_id=user_id).delete()
-        db.session.commit()
         db.session.commit()
 
 
@@ -134,7 +136,7 @@ def validate_data():
     validator = ScheduleDataValidator()
     valid, errors = validator.validate(students, schedules, periods)
 
-    # Remove old validation result for this user
+    # Remove old validation results for this user
     ValidationResults.query.filter_by(user_id=user_id).delete()
     db.session.commit()
 
@@ -163,6 +165,8 @@ def optimize_schedule():
             "message": "Validation failed",
             "errors": validation.errors if validation.errors else []
         }), 400
+    
+    # Run the optimizer
     optimizer = ScheduleOptimizer()
     optimizer.run_solver(students, schedules, periods)
     
@@ -171,13 +175,13 @@ def optimize_schedule():
     unassigned = optimizer.get_unassigned_courses()  # DataFrame: Student Name, Course Name
 
     # Remove old results for this user
-    StudentSchedules.query.filter_by(user_id=user_id).delete()
+    AssignedCourses.query.filter_by(user_id=user_id).delete()
     UnassignedCourses.query.filter_by(user_id=user_id).delete()
     db.session.commit()
 
     # Insert assigned courses
     for _, row in assigned.iterrows():
-        db.session.add(StudentSchedules(
+        db.session.add(AssignedCourses(
             user_id=user_id,
             student_name=row['Student Name'],
             course_name=row['Course Name'],
@@ -203,7 +207,7 @@ def get_assigned_courses():
     user_id = session.get('user_id')
     if not is_data_optimized(user_id):
         return jsonify({"status": "Error", "message": "Data not optimized"}), 400
-    results = StudentSchedules.query.filter_by(user_id=user_id).all()
+    results = AssignedCourses.query.filter_by(user_id=user_id).all()
     data = [
         {
             "Student Name": r.student_name,
@@ -252,7 +256,7 @@ def get_class_roster():
         return jsonify({"status": "Error", "message": "The given course/section does not exist"}), 404
 
     # Get students registered for this course/section
-    results = StudentSchedules.query.filter_by(
+    results = AssignedCourses.query.filter_by(
         user_id=user_id,
         course_name=course,
         section=int(section)
@@ -269,7 +273,7 @@ def get_student_schedule():
     student = request.args.get('student')
     if not student:
         return jsonify({"status": "Error", "message": "Missing student parameter"}), 400
-    results = StudentSchedules.query.filter_by(
+    results = AssignedCourses.query.filter_by(
         user_id=user_id,
         student_name=student
     ).all()
@@ -297,7 +301,7 @@ def get_all_class_rosters():
         rosters[key] = []
 
     # Get all student assignments
-    results = StudentSchedules.query.filter_by(user_id=user_id).all()
+    results = AssignedCourses.query.filter_by(user_id=user_id).all()
     for r in results:
         key = f"{r.course_name}.{r.section}"
         if key in rosters:
@@ -313,7 +317,7 @@ def get_all_student_schedules():
     user_id = session.get('user_id')
     if not is_data_optimized(user_id):
         return jsonify({"status": "Error", "message": "Data not optimized"}), 400
-    results = StudentSchedules.query.filter_by(user_id=user_id).all()
+    results = AssignedCourses.query.filter_by(user_id=user_id).all()
     schedules = {}
     for r in results:
         schedules.setdefault(r.student_name, []).append({
