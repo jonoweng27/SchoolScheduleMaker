@@ -233,7 +233,7 @@ class ScheduleOptimizer:
                     else:
                         reason = "Unknown"
                     unassigned.append((s, c, reason))
-        return pd.DataFrame(unassigned, columns=["Student Name", "Unassigned Course", "Reason"])
+        return pd.DataFrame(unassigned, columns=["Student Name", "Unassigned Course Name", "Reason"])
 
     # --- Output class rosters for a given course and section ---
     def get_class_roster(self, course, section):

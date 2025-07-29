@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, session
 import pandas as pd
-from models import db, Students, Schedules, Periods, ValidationResults, OptimizationResults
+from models import db, Students, Schedules, Periods, ValidationResults, StudentSchedules, UnassignedCourses
 from data_validation.schedule_data_validator import ScheduleDataValidator
 from optimization.schedule_optimizer import ScheduleOptimizer
 from utils import normalize_dataframe
@@ -31,6 +31,11 @@ def get_user_uploaded_data(user_id):
     if students.empty or schedules.empty or periods.empty:
         return None, None, None
     return students, schedules, periods
+
+def is_data_optimized(user_id):
+    assigned_exists = db.session.query(StudentSchedules.query.filter_by(user_id=user_id).exists()).scalar()
+    unassigned_exists = db.session.query(UnassignedCourses.query.filter_by(user_id=user_id).exists()).scalar()
+    return assigned_exists or unassigned_exists
 
 @app.route('/mock_login')
 def mock_login():
@@ -81,7 +86,9 @@ def upload_data():
         Schedules.query.filter_by(user_id=user_id).delete()
         Periods.query.filter_by(user_id=user_id).delete()
         ValidationResults.query.filter_by(user_id=user_id).delete()
-        OptimizationResults.query.filter_by(user_id=user_id).delete()
+        StudentSchedules.query.filter_by(user_id=user_id).delete()
+        UnassignedCourses.query.filter_by(user_id=user_id).delete()
+        db.session.commit()
         db.session.commit()
 
 
@@ -119,12 +126,17 @@ def upload_data():
 @require_login
 def validate_data():
     user_id = session.get('user_id')  # Set after SSO
-    
+
     students, schedules, periods = get_user_uploaded_data(user_id)
     if not all([students is not None, schedules is not None, periods is not None]):
         return jsonify({"status": "Error", "message": "Data not uploaded"}), 400
+
     validator = ScheduleDataValidator()
     valid, errors = validator.validate(students, schedules, periods)
+
+    # Remove old validation result for this user
+    ValidationResults.query.filter_by(user_id=user_id).delete()
+    db.session.commit()
 
     db.session.add(ValidationResults(user_id=user_id, valid=valid, errors=errors))
     db.session.commit()
@@ -154,117 +166,149 @@ def optimize_schedule():
     optimizer = ScheduleOptimizer()
     optimizer.run_solver(students, schedules, periods)
     
-    # Serialize only the assignments
-    assignments = optimizer.get_assignments()
+    # Get assignments and unassigned courses
+    assigned = optimizer.get_assigned_courses()  # DataFrame: Student Name, Course Name, Section
+    unassigned = optimizer.get_unassigned_courses()  # DataFrame: Student Name, Course Name
 
-    # Store the assignments in the optimization_results table (as JSON)
-    db.session.add(OptimizationResults(user_id=user_id, assignments_json=assignments))
+    # Remove old results for this user
+    StudentSchedules.query.filter_by(user_id=user_id).delete()
+    UnassignedCourses.query.filter_by(user_id=user_id).delete()
+    db.session.commit()
+
+    # Insert assigned courses
+    for _, row in assigned.iterrows():
+        db.session.add(StudentSchedules(
+            user_id=user_id,
+            student_name=row['Student Name'],
+            course_name=row['Course Name'],
+            section=int(row['Section'])
+        ))
+
+    # Insert unassigned courses
+    for _, row in unassigned.iterrows():
+        db.session.add(UnassignedCourses(
+            user_id=user_id,
+            student_name=row['Student Name'],
+            unassigned_course_name=row['Unassigned Course Name'],
+            reason=row['Reason'] if 'Reason' in row else 'No reason provided'
+        ))
+
     db.session.commit()
 
     return jsonify({"status": "Success", "message": "Optimization complete, assignments stored"})
 
-
-def get_optimizer_for_user():
-    user_id = session.get('user_id')
-    if not user_id:
-        return None, jsonify({"status": "Error", "message": "Not authenticated"}), 401
-    opt_result = OptimizationResults.query.filter_by(user_id=user_id).order_by(OptimizationResults.created_at.desc()).first()
-    if not opt_result or not opt_result.assignments_json:
-        return None, jsonify({"status": "Error", "message": "Optimization not run"}), 400
-    try:
-        assignments = opt_result.assignments_json
-        students, schedules, periods = get_user_uploaded_data(user_id)
-        optimizer = ScheduleOptimizer()
-        optimizer.run_solver(students, schedules, periods)
-        optimizer.set_assignments(assignments)
-        return optimizer, None, None
-    except Exception:
-        return None, jsonify({"status": "Error", "message": "Failed to load optimizer"}), 500
-
 @app.route('/assigned_courses', methods=['GET'])
 @require_login
 def get_assigned_courses():
-    optimizer, error_response, status = get_optimizer_for_user()
-    if error_response:
-        return error_response, status
-    df = optimizer.get_assigned_courses()
-    return df.to_json(orient='records')
+    user_id = session.get('user_id')
+    if not is_data_optimized(user_id):
+        return jsonify({"status": "Error", "message": "Data not optimized"}), 400
+    results = StudentSchedules.query.filter_by(user_id=user_id).all()
+    data = [
+        {
+            "Student Name": r.student_name,
+            "Course Name": r.course_name,
+            "Section": r.section
+        }
+        for r in results
+    ]
+    return jsonify(data)
 
 @app.route('/unassigned_courses', methods=['GET'])
 @require_login
 def get_unassigned_courses():
-    optimizer, error_response, status = get_optimizer_for_user()
-    if error_response:
-        return error_response, status
-    df = optimizer.get_unassigned_courses()
-    return df.to_json(orient='records')
+    user_id = session.get('user_id')
+    if not is_data_optimized(user_id):
+        return jsonify({"status": "Error", "message": "Data not optimized"}), 400
+    results = UnassignedCourses.query.filter_by(user_id=user_id).all()
+    data = [
+        {
+            "Student Name": r.student_name,
+            "Unassigned Course Name": r.unassigned_course_name,
+            "Reason": r.reason
+        }
+        for r in results
+    ]
+    return jsonify(data)
 
 @app.route('/class_roster', methods=['GET'])
 @require_login
 def get_class_roster():
-    optimizer, error_response, status = get_optimizer_for_user()
-    if error_response:
-        return error_response, status
+    user_id = session.get('user_id')
+    if not is_data_optimized(user_id):
+        return jsonify({"status": "Error", "message": "Data not optimized"}), 400
     course = request.args.get('course')
     section = request.args.get('section')
     if not course or not section:
         return jsonify({"status": "Error", "message": "Missing course or section parameter"}), 400
-    try:
-        schedules_df = pd.read_sql(Schedules.query.filter_by(user_id=session.get('user_id')).statement, db.engine)
-        match = (schedules_df['Course Name'].str.lower() == course.strip().lower()) & (schedules_df['Section'].astype(str) == str(section))
-        if not match.any():
-            return jsonify({"status": "Error", "message": "The given course/section does not exist"}), 404
-        course_name = schedules_df.loc[match, 'Course Name'].iloc[0]
-        section_num = schedules_df.loc[match, 'Section'].iloc[0]
-        df = optimizer.get_class_roster(course_name, section_num)
-        if isinstance(df, str):
-            return jsonify({"status": "Error", "message": df}), 404
-        # Return empty list if no students are registered
-        return df.to_json(orient='records')
-    except Exception:
+
+    # Check if the course/section exists in the Schedules table
+    exists = Schedules.query.filter_by(
+        user_id=user_id,
+        course_name=course,
+        section=int(section)
+    ).first()
+    if not exists:
         return jsonify({"status": "Error", "message": "The given course/section does not exist"}), 404
+
+    # Get students registered for this course/section
+    results = StudentSchedules.query.filter_by(
+        user_id=user_id,
+        course_name=course,
+        section=int(section)
+    ).all()
+    student_names = [r.student_name for r in results]
+    return jsonify(student_names)
 
 @app.route('/student_schedule', methods=['GET'])
 @require_login
 def get_student_schedule():
-    optimizer, error_response, status = get_optimizer_for_user()
-    if error_response:
-        return error_response, status
+    user_id = session.get('user_id')
+    if not is_data_optimized(user_id):
+        return jsonify({"status": "Error", "message": "Data not optimized"}), 400
     student = request.args.get('student')
     if not student:
         return jsonify({"status": "Error", "message": "Missing student parameter"}), 400
-    try:
-        students_df = pd.read_sql(Students.query.filter_by(user_id=session.get('user_id')).statement, db.engine)
-        match = students_df['Student Name'].str.lower() == student.strip().lower()
-        if not match.any():
-            return jsonify({"status": "Error", "message": "Student does not exist"}), 404
-        student = students_df.loc[match, 'Student Name'].iloc[0]
-        df = optimizer.get_student_schedule(student)
-        if df is None or (hasattr(df, 'empty') and df.empty):
-            return jsonify({"status": "Error", "message": "Student does not exist"}), 404
-        return df.to_json()
-    except Exception:
-        return jsonify({"status": "Error", "message": "Student does not exist"}), 404
+    results = StudentSchedules.query.filter_by(
+        user_id=user_id,
+        student_name=student
+    ).all()
+    data = [
+        {
+            "Course Name": r.course_name,
+            "Section": r.section
+        }
+        for r in results
+    ]
+    return jsonify(data)
 
 @app.route('/all_class_rosters', methods=['GET'])
 @require_login
 def get_all_class_rosters():
-    optimizer, error_response, status = get_optimizer_for_user()
-    if error_response:
-        return error_response, status
-    rosters = optimizer.get_all_class_rosters()
-    result = {str(k): v.to_dict(orient='records') for k, v in rosters.items()}
-    return jsonify(result)
+    user_id = session.get('user_id')
+    if not is_data_optimized(user_id):
+        return jsonify({"status": "Error", "message": "Data not optimized"}), 400
+    results = StudentSchedules.query.filter_by(user_id=user_id).all()
+    rosters = {}
+    for r in results:
+        key = f"{r.course_name}.{r.section}"
+        rosters.setdefault(key, []).append(r.student_name)
+    return jsonify(rosters)
 
 @app.route('/all_student_schedules', methods=['GET'])
 @require_login
 def get_all_student_schedules():
-    optimizer, error_response, status = get_optimizer_for_user()
-    if error_response:
-        return error_response, status
-    schedules = optimizer.get_all_student_schedules()
-    result = {k: v.to_dict() for k, v in schedules.items()}
-    return jsonify(result)
+    user_id = session.get('user_id')
+    if not is_data_optimized(user_id):
+        return jsonify({"status": "Error", "message": "Data not optimized"}), 400
+    results = StudentSchedules.query.filter_by(user_id=user_id).all()
+    schedules = {}
+    for r in results:
+        schedules.setdefault(r.student_name, []).append({
+            "Course Name": r.course_name,
+            "Section": r.section
+        })
+    return jsonify(schedules)
 
 if __name__ == '__main__':
     app.run(debug=True)

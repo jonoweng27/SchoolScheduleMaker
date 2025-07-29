@@ -19,7 +19,7 @@ CREATE TABLE schedules (
     "ID" SERIAL PRIMARY KEY,
     "User ID" VARCHAR(128) REFERENCES users("ID") ON DELETE CASCADE,
     "Course Name" VARCHAR(255) NOT NULL,
-    "Section" VARCHAR(64) NOT NULL,
+    "Section" INTEGER NOT NULL,
     "Capacity" INTEGER NOT NULL
 );
 
@@ -28,17 +28,9 @@ CREATE TABLE periods (
     "ID" SERIAL PRIMARY KEY,
     "User ID" VARCHAR(128) REFERENCES users("ID") ON DELETE CASCADE,
     "Course Name" VARCHAR(255) NOT NULL,
-    "Section" VARCHAR(64) NOT NULL,
+    "Section" INTEGER NOT NULL,
     "Day of Week" VARCHAR(32) NOT NULL,
     "Period Number" INTEGER NOT NULL
-);
-
--- Optimization results table: stores results per user (optional)
-CREATE TABLE optimization_results (
-    "ID" SERIAL PRIMARY KEY,
-    "User ID" VARCHAR(128) REFERENCES users("ID") ON DELETE CASCADE,
-    "Assignments" JSONB NOT NULL,
-    "Created At" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Validation results table: stores validation status and errors per user
@@ -48,4 +40,22 @@ CREATE TABLE validation_results (
     "Valid" BOOLEAN NOT NULL,
     "Errors" JSONB,
     "Created At" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Student Schedules: assigned courses
+CREATE TABLE assigned_courses (
+    "ID" SERIAL PRIMARY KEY,
+    "User ID" VARCHAR(128) REFERENCES users("ID") ON DELETE CASCADE,
+    "Student Name" VARCHAR(255) NOT NULL,
+    "Course Name" VARCHAR(255) NOT NULL,
+    "Section" INTEGER NOT NULL
+);
+
+-- Unassigned Courses: courses a student requested but did not get, with reason
+CREATE TABLE unassigned_courses (
+    "ID" SERIAL PRIMARY KEY,
+    "User ID" VARCHAR(128) REFERENCES users("ID") ON DELETE CASCADE,
+    "Student Name" VARCHAR(255) NOT NULL,
+    "Unassigned Course Name" VARCHAR(255) NOT NULL,
+    "Reason" TEXT NOT NULL
 );
