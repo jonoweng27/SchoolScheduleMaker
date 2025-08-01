@@ -35,15 +35,6 @@ CREATE TABLE periods (
     "Period Number" INTEGER NOT NULL
 );
 
--- Validation results table: stores validation status and errors per user
-CREATE TABLE validation_results (
-    "ID" SERIAL PRIMARY KEY,
-    "User ID" INTEGER REFERENCES users("ID") ON DELETE CASCADE,
-    "Valid" BOOLEAN NOT NULL,
-    "Errors" JSONB,
-    "Created At" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
 -- Student Schedules: assigned courses
 CREATE TABLE assigned_courses (
     "ID" SERIAL PRIMARY KEY,

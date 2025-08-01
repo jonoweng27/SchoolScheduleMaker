@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, g
-from models import db, Users, Students, Schedules, Periods, ValidationResults, AssignedCourses, UnassignedCourses
+from models import db, Users, Students, Schedules, Periods, AssignedCourses, UnassignedCourses
 from data_validation.schedule_data_validator import ScheduleDataValidator
 from optimization.schedule_optimizer import ScheduleOptimizer
 from utils import normalize_dataframe
@@ -51,10 +51,9 @@ def register():
 @require_auth
 def upload_data():
     user_id = g.user.id
-    
+
     required_files = {'students', 'schedules', 'periods'}
     uploaded_files = set(request.files.keys())
-
     missing_files = required_files - uploaded_files
 
     if missing_files:
@@ -87,66 +86,52 @@ def upload_data():
                 "message": f"The following CSVs are empty: {', '.join(empty_csvs)}"
             }), 400
 
+        # Validate data before inserting
+        validator = ScheduleDataValidator()
+        valid, errors = validator.validate(students, schedules, periods)
+        if not valid:
+            return jsonify({
+                "status": "Error",
+                "message": "Validation failed",
+                "errors": errors if errors else []
+            }), 400
+
         # Remove old data for this user
         Students.query.filter_by(user_id=user_id).delete()
         Schedules.query.filter_by(user_id=user_id).delete()
         Periods.query.filter_by(user_id=user_id).delete()
-        ValidationResults.query.filter_by(user_id=user_id).delete()
         AssignedCourses.query.filter_by(user_id=user_id).delete()
         UnassignedCourses.query.filter_by(user_id=user_id).delete()
         db.session.commit()
 
-
         # Insert new data
         for _, row in students.iterrows():
             db.session.add(Students(
-            user_id=user_id,
-            student_name=row['Student Name'],
-            course_name=row['Course Name']
+                user_id=user_id,
+                student_name=row['Student Name'],
+                course_name=row['Course Name']
             ))
         for _, row in schedules.iterrows():
             db.session.add(Schedules(
-            user_id=user_id,
-            course_name=row['Course Name'],
-            section=row['Section'],
-            capacity=row['Capacity']
+                user_id=user_id,
+                course_name=row['Course Name'],
+                section=row['Section'],
+                capacity=row['Capacity']
             ))
         for _, row in periods.iterrows():
             db.session.add(Periods(
-            user_id=user_id,
-            course_name=row['Course Name'],
-            section=row['Section'],
-            day_of_week=row['Day of Week'],
-            period_number=row['Period Number']
+                user_id=user_id,
+                course_name=row['Course Name'],
+                section=row['Section'],
+                day_of_week=row['Day of Week'],
+                period_number=row['Period Number']
             ))
 
         db.session.commit()
 
-        return jsonify({"status": "Success", "message": "Files uploaded"})
-    
+        return jsonify({"status": "Success", "message": "Files uploaded and validated"})
     except Exception as e:
         return jsonify({"status": "Error", "message": str(e)}), 400
-
-@app.route('/validate', methods=['GET'])
-@require_auth
-def validate_data():
-    user_id = g.user.id  # Set after SSO
-
-    students, schedules, periods = get_user_uploaded_data(user_id)
-    if not all([students is not None, schedules is not None, periods is not None]):
-        return jsonify({"status": "Error", "message": "Data not uploaded"}), 400
-
-    validator = ScheduleDataValidator()
-    valid, errors = validator.validate(students, schedules, periods)
-
-    # Remove old validation results for this user
-    ValidationResults.query.filter_by(user_id=user_id).delete()
-    db.session.commit()
-
-    db.session.add(ValidationResults(user_id=user_id, valid=valid, errors=errors))
-    db.session.commit()
-
-    return jsonify({"valid": valid, "errors": errors})
 
 @app.route('/optimize', methods=['POST'])
 @require_auth
@@ -159,17 +144,6 @@ def optimize_schedule():
         return jsonify({"status": "Error", "message": "Data not uploaded"}), 400
     if students.empty or schedules.empty or periods.empty:
         return jsonify({"status": "Error", "message": "Data not uploaded"}), 400
-
-    # Check validation result
-    validation = ValidationResults.query.filter_by(user_id=user_id).order_by(ValidationResults.created_at.desc()).first()
-    if not validation:
-        return jsonify({"status": "Error", "message": "Data not validated"}), 400
-    if not validation.valid:
-        return jsonify({
-            "status": "Error",
-            "message": "Validation failed",
-            "errors": validation.errors if validation.errors else []
-        }), 400
     
     # Run the optimizer
     optimizer = ScheduleOptimizer()

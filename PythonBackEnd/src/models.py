@@ -35,14 +35,6 @@ class Periods(db.Model):
     day_of_week = db.Column('Day of Week', db.String(32), nullable=False)
     period_number = db.Column('Period Number', db.Integer, nullable=False)
 
-class ValidationResults(db.Model):
-    __tablename__ = 'validation_results'
-    id = db.Column('ID', db.Integer, primary_key=True)
-    user_id = db.Column('User ID', db.Integer, db.ForeignKey('users.ID', ondelete='CASCADE'), nullable=False)
-    valid = db.Column('Valid', db.Boolean, nullable=False)
-    errors = db.Column('Errors', db.JSON, nullable=True)
-    created_at = db.Column('Created At', db.DateTime, server_default=db.func.now())
-
 class AssignedCourses(db.Model):
     __tablename__ = 'assigned_courses'
     id = db.Column('ID', db.Integer, primary_key=True)

@@ -11,11 +11,8 @@ def client():
     with flask_app.test_client() as client:
         yield client
 
-# Create the base64-encoded Authorization header
 CREDENTIALS = base64.b64encode(b"Basic Data:school").decode("utf-8")
 AUTH_HEADERS = {'Authorization': f'Basic {CREDENTIALS}'}
-
-
 
 def test_straight_path(client):
     base_dir = os.path.join(os.path.dirname(__file__), "data", "BasicData")
@@ -34,12 +31,9 @@ def test_straight_path(client):
             headers=AUTH_HEADERS
         )
         assert upload_response.status_code == 200
-
-    validate_response = client.get(
-        '/validate',
-        headers=AUTH_HEADERS
-    )
-    assert validate_response.status_code == 200
+        json_data = upload_response.get_json()
+        assert json_data['status'] == 'Success'
+        assert json_data['message'] == 'Files uploaded and validated'
 
     optimize_response = client.post(
         '/optimize',
@@ -81,17 +75,7 @@ def test_mixed_case(client):
     assert response.status_code == 200
     json_data = response.get_json()
     assert json_data['status'] == 'Success'
-    assert json_data['message'] == 'Files uploaded'
-
-    response = client.get(
-        '/validate',
-        headers=AUTH_HEADERS
-    )
-    assert response.status_code == 200
-    json_data = response.get_json()
-    assert json_data['valid'] is True
-    assert isinstance(json_data['errors'], list)
-    assert len(json_data['errors']) == 0
+    assert json_data['message'] == 'Files uploaded and validated'
 
     response = client.post(
         '/optimize',
@@ -141,23 +125,8 @@ def test_bad_data(client):
             content_type='multipart/form-data',
             headers=AUTH_HEADERS
         )
-    assert response.status_code == 200
+    assert response.status_code == 400
     json_data = response.get_json()
-    assert json_data['status'] == 'Success'
-    assert json_data['message'] == 'Files uploaded'
-
-    response = client.get(
-        '/validate',
-        headers=AUTH_HEADERS
-    )
-    assert response.status_code == 200
-    json_data = response.get_json()
-    assert json_data['valid'] is False
+    assert json_data['status'] == 'Error'
     assert isinstance(json_data['errors'], list)
-    assert len(json_data['errors']) > 0
-
-    response = client.post(
-        '/optimize',
-        headers=AUTH_HEADERS
-    )
-    assert response.status_code == 400 or response.get_json()['status'] == 'Error'
+    assert len(json_data['errors']) == 8
