@@ -1,17 +1,37 @@
-from flask import Flask, request, jsonify, g
-from models import db, Users, Students, Schedules, Periods, AssignedCourses, UnassignedCourses
+from flask import (
+    Flask,
+    request,
+    jsonify,
+    g
+)
+
+from models import (
+    db,
+    Users,
+    Students,
+    Schedules,
+    Periods,
+    AssignedCourses,
+    UnassignedCourses
+)
+
 from data_validation.schedule_data_validator import ScheduleDataValidator
 from optimization.schedule_optimizer import ScheduleOptimizer
 from utils import normalize_dataframe
-from functools import wraps
-from passlib.hash import bcrypt
+
+import os
 import pandas as pd
 
+from passlib.hash import bcrypt
+from functools import wraps
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key'  # Needed for session
-
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:postgres@localhost/ScheduleBackEnd'
+app.secret_key = os.getenv('SECRET_KEY')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
