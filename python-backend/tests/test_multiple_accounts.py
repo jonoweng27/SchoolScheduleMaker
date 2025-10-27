@@ -1,24 +1,69 @@
 import pytest
 from flask import Flask
-from app import app as flask_app
+from app import app as flask_app, generate_access_token
+from models import db, Users
 import json
 import os
 import base64
+from datetime import datetime, timezone, timedelta
+import jwt
+from dotenv import load_dotenv
+
+load_dotenv()
 
 @pytest.fixture
 def client():
     flask_app.config['TESTING'] = True
     with flask_app.test_client() as client:
+        with flask_app.app_context():
+            # Clean up test users
+            Users.query.filter(Users.email.like('test-user-%')).delete()
+            db.session.commit()
         yield client
 
-# Credentials for two accounts
-CREDENTIALS_BASIC = base64.b64encode(b"Basic Data:school").decode("utf-8")
-CREDENTIALS_TWELFTH = base64.b64encode(b"Twelfth Grade Data:school").decode("utf-8")
+@pytest.fixture
+def auth_headers_basic(client):
+    with flask_app.app_context():
+        # Create or get test user for basic data
+        email = 'test-user-basic@test.com'
+        user = Users.query.filter_by(email=email).first()
+        if not user:
+            user = Users(
+                google_id='test-google-id-basic',
+                email=email,
+                name='Test User Basic',
+                profile_picture='test-pic-basic.jpg',
+                last_login=db.func.now(),
+                email_verified=True
+            )
+            db.session.add(user)
+            db.session.commit()
+        
+        token, _ = generate_access_token(user.id)
+        return {'Authorization': f'Bearer {token}'}
 
-AUTH_HEADERS_BASIC = {'Authorization': f'Basic {CREDENTIALS_BASIC}'}
-AUTH_HEADERS_TWELFTH = {'Authorization': f'Basic {CREDENTIALS_TWELFTH}'}
+@pytest.fixture
+def auth_headers_twelfth(client):
+    with flask_app.app_context():
+        # Create or get test user for twelfth grade data
+        email = 'test-user-twelfth@test.com'
+        user = Users.query.filter_by(email=email).first()
+        if not user:
+            user = Users(
+                google_id='test-google-id-twelfth',
+                email=email,
+                name='Test User Twelfth',
+                profile_picture='test-pic-twelfth.jpg',
+                last_login=db.func.now(),
+                email_verified=True
+            )
+            db.session.add(user)
+            db.session.commit()
+        
+        token, _ = generate_access_token(user.id)
+        return {'Authorization': f'Bearer {token}'}
 
-def test_multiple_accounts_alternating_calls(client):
+def test_multiple_accounts_alternating_calls(client, auth_headers_basic, auth_headers_twelfth):
     # Paths for both datasets
     basic_dir = os.path.join(os.path.dirname(__file__), "data", "BasicData")
     twelfth_dir = os.path.join(os.path.dirname(__file__), "data", "TwelfthGrade")
@@ -36,7 +81,7 @@ def test_multiple_accounts_alternating_calls(client):
             '/upload',
             data=data_basic,
             content_type='multipart/form-data',
-            headers=AUTH_HEADERS_BASIC
+            headers=auth_headers_basic
         )
         assert upload_response_basic.status_code == 200
         json_data = upload_response_basic.get_json()
@@ -55,7 +100,7 @@ def test_multiple_accounts_alternating_calls(client):
             '/upload',
             data=data_twelfth,
             content_type='multipart/form-data',
-            headers=AUTH_HEADERS_TWELFTH
+            headers=auth_headers_twelfth
         )
         assert upload_response_twelfth.status_code == 200
         json_data = upload_response_twelfth.get_json()
@@ -64,21 +109,21 @@ def test_multiple_accounts_alternating_calls(client):
     # Optimize BasicData
     optimize_response_basic = client.post(
         '/optimize',
-        headers=AUTH_HEADERS_BASIC
+        headers=auth_headers_basic
     )
     assert optimize_response_basic.status_code == 200
 
     # Optimize TwelfthGradeData
     optimize_response_twelfth = client.post(
         '/optimize',
-        headers=AUTH_HEADERS_TWELFTH
+        headers=auth_headers_twelfth
     )
     assert optimize_response_twelfth.status_code == 200
 
     # Get unassigned courses for BasicData
     response_basic = client.get(
         '/unassigned_courses',
-        headers=AUTH_HEADERS_BASIC
+        headers=auth_headers_basic
     )
     assert response_basic.status_code == 200
     json_basic = response_basic.get_json()
@@ -93,7 +138,7 @@ def test_multiple_accounts_alternating_calls(client):
     # Get unassigned courses for TwelfthGradeData
     response_twelfth = client.get(
         '/unassigned_courses',
-        headers=AUTH_HEADERS_TWELFTH
+        headers=auth_headers_twelfth
     )
     assert response_twelfth.status_code == 200
     json_twelfth = response_twelfth.get_json()
