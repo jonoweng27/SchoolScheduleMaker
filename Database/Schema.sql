@@ -1,11 +1,13 @@
 -- Users table: stores username/password for authentication
 CREATE TABLE users (
     "ID" SERIAL PRIMARY KEY,
-    "Username" VARCHAR(64) UNIQUE NOT NULL,
-    "Password Hash" VARCHAR(255) NOT NULL,
-    "Email" VARCHAR(255),
+    "Google ID" VARCHAR(255) UNIQUE NOT NULL,  -- Google's unique user ID
+    "Email" VARCHAR(255) UNIQUE NOT NULL,
     "Name" VARCHAR(255),
-    "Created At" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    "Profile Picture" TEXT,  -- Optional: Google profile image URL
+    "Created At" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    "Last Login" TIMESTAMP,
+    "Email Verified" BOOLEAN DEFAULT FALSE
 );
 
 -- Students table: stores uploaded student data per user
@@ -52,10 +54,3 @@ CREATE TABLE unassigned_courses (
     "Unassigned Course Name" VARCHAR(255) NOT NULL,
     "Reason" TEXT NOT NULL
 );
-
--- Insert two users with fake data and password hash for "school"
--- Password hash generated using bcrypt for "school": $2y$05$OBbYmy9OOJmY.IwtbVRcp.KApaHr8NGYytU7aGNUlXh6P5lPPtsQS
-INSERT INTO users ("Username", "Password Hash", "Email", "Name")
-VALUES
-    ('Basic Data', '$2y$05$OBbYmy9OOJmY.IwtbVRcp.KApaHr8NGYytU7aGNUlXh6P5lPPtsQS', 'basic@example.com', 'Basic Data User'),
-    ('Twelfth Grade Data', '$2y$05$OBbYmy9OOJmY.IwtbVRcp.KApaHr8NGYytU7aGNUlXh6P5lPPtsQS', 'twelfth@example.com', 'Twelfth Grade Data User');

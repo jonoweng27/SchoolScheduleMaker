@@ -5,11 +5,13 @@ db = SQLAlchemy()
 class Users(db.Model):
     __tablename__ = 'users'
     id = db.Column('ID', db.Integer, primary_key=True)
-    username = db.Column('Username', db.String(64), unique=True, nullable=False)
-    password_hash = db.Column('Password Hash', db.String(255), nullable=False)
-    email = db.Column('Email', db.String(255))
+    google_id = db.Column('Google ID', db.String(255), unique=True, nullable=False)
+    email = db.Column('Email', db.String(255), unique=True, nullable=False) 
     name = db.Column('Name', db.String(255))
+    profile_picture = db.Column('Profile Picture', db.Text)
     created_at = db.Column('Created At', db.DateTime, server_default=db.func.now())
+    last_login = db.Column('Last Login', db.DateTime)
+    email_verified = db.Column('Email Verified', db.Boolean, default=False)
 
 class Students(db.Model):
     __tablename__ = 'students'

@@ -22,53 +22,108 @@ from utils import normalize_dataframe
 import os
 import pandas as pd
 
-from passlib.hash import bcrypt
 from functools import wraps
 
 from dotenv import load_dotenv
 
+import jwt
+from datetime import datetime, timedelta, timezone
+from google.auth import jwt as google_jwt
+
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.getenv('SECRET_KEY')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
-def require_auth(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        auth = request.authorization
-        if not auth or not auth.username or not auth.password:
-            return jsonify({"status": "Error", "message": "Authentication required"}), 401
-        user = Users.query.filter_by(username=auth.username).first()
-        if not user or not bcrypt.verify(auth.password, user.password_hash):
-            return jsonify({"status": "Error", "message": "Invalid credentials"}), 401
-        g.user = user  # Store user in Flask global context
-        return f(*args, **kwargs)
-    return decorated
+    
+@app.route('/api/auth/google', methods=['POST'])
+def api_auth_google():
+    data = request.get_json()
+    if not data or 'id_token' not in data:
+        return jsonify({"error": "id_token required"}), 400
 
-# Example registration endpoint (for creating users)
-@app.route('/register', methods=['POST'])
-def register():
-    data = request.json
-    username = data.get('username')
-    password = data.get('password')
-    email = data.get('email')
-    name = data.get('name')
-    if not username or not password:
-        return jsonify({"status": "Error", "message": "Username and password required"}), 400
-    if Users.query.filter_by(username=username).first():
-        return jsonify({"status": "Error", "message": "Username already exists"}), 400
-    password_hash = bcrypt.hash(password)
-    user = Users(username=username, password_hash=password_hash, email=email, name=name)
-    db.session.add(user)
+    # Verify Google id_token
+    google_user = verify_google_id_token(data['id_token'])
+    if not google_user:
+        return jsonify({"error": "Invalid Google token"}), 401
+
+    # Create/update user in DB
+    user = Users.query.filter_by(google_id=google_user['sub']).first()
+    if not user:
+        user = Users(
+            google_id=google_user['sub'],
+            email=google_user['email'], 
+            name=google_user['name'],
+            profile_picture=google_user.get('picture'),
+            last_login=db.func.now(),
+            email_verified=google_user.get('email_verified', False)
+        )
+        db.session.add(user)
+    else:
+        user.last_login = db.func.now()
+    
     db.session.commit()
-    return jsonify({"status": "Success", "message": "User registered"})
+
+    # Return JWT for API access
+    access_token, expire_time = generate_access_token(user.id)
+    
+    return jsonify({
+        "access_token": access_token,
+        "token_type": "Bearer",
+        "expires_in": int((expire_time - datetime.now(timezone.utc)).total_seconds()),
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name
+        }
+    })
+
+def verify_google_id_token(id_token):
+    try:
+        # Verify the token with Google's public key and audience
+        decoded = google_jwt.decode(id_token, 
+                                   audience=os.getenv('GOOGLE_CLIENT_ID'),
+                                   verify=False) #TODO: Make sure to set verify=True in production
+        return decoded
+    except Exception as e:
+        return None
+
+def generate_access_token(user_id):
+    expire = datetime.now(timezone.utc) + timedelta(minutes=int(os.getenv('JWT_ACCESS_TOKEN_EXPIRE_MINUTES', 30)))
+    payload = {
+        'exp': expire,
+        'iat': datetime.now(timezone.utc),
+        'sub': user_id,
+        'type': 'access'
+    }
+    token = jwt.encode(payload, os.getenv('JWT_SECRET_KEY'), algorithm='HS256')
+    return token, expire
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        auth_header = request.headers.get('Authorization', '')
+        if not auth_header.startswith('Bearer '):
+            return jsonify({"status": "Error", "message": "JWT token required"}), 401
+        
+        token = auth_header.split(' ')[1]
+        try:
+            payload = jwt.decode(token, os.getenv('JWT_SECRET_KEY'), algorithms=['HS256'])
+            user_id = payload['sub']
+        except jwt.InvalidTokenError:
+            return jsonify({"status": "Error", "message": f"Invalid JWT: {str(e)}"}), 401
+        
+        g.user = Users.query.get(user_id)
+        if not g.user:
+            return jsonify({"status": "Error", "message": "User not found"}), 401
+        return f(*args, **kwargs)
+    return decorated_function
 
 
 @app.route('/upload', methods=['POST'])
-@require_auth
+@login_required
 def upload_data():
     user_id = g.user.id
 
@@ -154,7 +209,7 @@ def upload_data():
         return jsonify({"status": "Error", "message": str(e)}), 400
 
 @app.route('/optimize', methods=['POST'])
-@require_auth
+@login_required
 def optimize_schedule():
     user_id = g.user.id  # Set after SSO
 
@@ -201,7 +256,7 @@ def optimize_schedule():
     return jsonify({"status": "Success", "message": "Optimization complete, assignments stored"})
 
 @app.route('/assigned_courses', methods=['GET'])
-@require_auth
+@login_required
 def get_assigned_courses():
     user_id = g.user.id
     if not is_data_optimized(user_id):
@@ -218,7 +273,7 @@ def get_assigned_courses():
     return jsonify(data)
 
 @app.route('/unassigned_courses', methods=['GET'])
-@require_auth
+@login_required
 def get_unassigned_courses():
     user_id = g.user.id
     if not is_data_optimized(user_id):
@@ -235,7 +290,7 @@ def get_unassigned_courses():
     return jsonify(data)
 
 @app.route('/class_roster', methods=['GET'])
-@require_auth
+@login_required
 def get_class_roster():
     user_id = g.user.id
     if not is_data_optimized(user_id):
@@ -274,7 +329,7 @@ def get_class_roster():
         return jsonify({"status": "Error", "message": "The given course/section does not exist"}), 404
 
 @app.route('/student_schedule', methods=['GET'])
-@require_auth
+@login_required
 def get_student_schedule():
     user_id = g.user.id
     if not is_data_optimized(user_id):
@@ -304,7 +359,7 @@ def get_student_schedule():
         return jsonify({"status": "Error", "message": f"Student '{student}' not found for this user"}), 404
 
 @app.route('/all_class_rosters', methods=['GET'])
-@require_auth
+@login_required
 def get_all_class_rosters():
     user_id = g.user.id
     if not is_data_optimized(user_id):
@@ -329,7 +384,7 @@ def get_all_class_rosters():
     return jsonify(rosters)
 
 @app.route('/all_student_schedules', methods=['GET'])
-@require_auth
+@login_required
 def get_all_student_schedules():
     user_id = g.user.id
     if not is_data_optimized(user_id):
