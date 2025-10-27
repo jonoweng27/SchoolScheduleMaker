@@ -20,6 +20,9 @@ def client():
             Users.query.filter(Users.email.like('test-user-%')).delete()
             db.session.commit()
         yield client
+        with flask_app.app_context():
+            Users.query.filter(Users.email.like('test-user-%')).delete()
+            db.session.commit()
 
 @pytest.fixture
 def auth_headers(client):
